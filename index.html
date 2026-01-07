@@ -1,176 +1,33 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Document OCR - AI-Powered Text Extraction</title>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <link rel="stylesheet" href="style.css">
+  <meta charset="UTF-8" />
+  <title>Document OCR</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <div class="container">
+
+    <!-- Header -->
     <div class="header">
       <h1>📄 Document OCR</h1>
-      <p>AI-Powered Text Extraction from Documents and Images</p>
+      <p>Load analytics for uploaded invoices</p>
     </div>
 
-    <div class="main-content">
-      <!-- Upload Section -->
-      <div class="card">
-        <h2>📤 Upload Documents</h2>
-        <div class="upload-area" id="uploadArea">
-          <div class="upload-icon">📁</div>
-          <p><strong>Drag & drop files here</strong></p>
-          <p>or click to browse</p>
-          <p style="font-size: 0.9rem; color: #999; margin-top: 10px;">
-            Supports: PDF, PNG, JPG, TIFF, GIF, BMP, WEBP
-          </p>
-          <p style="font-size: 0.85rem; color: #667eea; margin-top: 10px; font-weight: 600;">
-            Files will upload automatically
-          </p>
-        </div>
-        <input type="file" id="fileInput" class="file-input" multiple 
-               accept=".pdf,.png,.jpg,.jpeg,.tiff,.tif,.gif,.bmp,.webp">
-        
-        <div class="file-list" id="fileList"></div>
-        
-        <div style="margin-top: 20px; display: flex; gap: 10px; justify-content: space-between; align-items: center;">
-          <div class="upload-stats">
-            <span id="uploadProgress">Ready to upload</span>
-          </div>
-          <button class="btn btn-secondary" id="clearBtn">Clear All</button>
-        </div>
-      </div>
-
-      <!-- Stats Section -->
-      <div class="card">
-        <h2>📊 Statistics</h2>
-        <div class="stats">
-          <div class="stat-item">
-            <div class="stat-value" id="totalFiles">0</div>
-            <div class="stat-label">Total Files</div>
-          </div>
-          <div class="stat-item">
-            <div class="stat-value" id="processedFiles">0</div>
-            <div class="stat-label">Processed</div>
-          </div>
-          <div class="stat-item">
-            <div class="stat-value" id="successRate">0%</div>
-            <div class="stat-label">Success Rate</div>
-          </div>
-        </div>
+    <!-- Load Analytics Button -->
+    <div class="card">
+      <div class="actions" style="justify-content: center;">
+        <button class="btn btn-primary" id="fetchResultsBtn">
+          📊 Load Analytics
+        </button>
       </div>
     </div>
 
-    <!-- Visualization Section -->
-    <div class="results-section">
-      <div class="card">
-        <h2>📊 Total Amount Visualization</h2>
-        <div style="margin-bottom: 20px; text-align: center;">
-          <div class="stat-item" style="max-width: 400px; margin: 0 auto;">
-            <div class="stat-value" id="totalAmountSum">$0.00</div>
-            <div class="stat-label">Total Across All Documents</div>
-          </div>
-        </div>
-        <div style="position: relative; height: 400px;">
-          <canvas id="amountChart"></canvas>
-        </div>
-      </div>
-    </div>
-
-    <!-- Vendor Analytics Dashboard Section -->
-    <div class="results-section">
-      <div class="dashboard-container">
-        <h2 class="dashboard-title">💼 Spend Analytics Dashboard</h2>
-        
-        <!-- KPI Cards -->
-        <div class="kpi-grid" id="kpiContainer">
-          <div class="kpi-card">
-            <div class="kpi-label">Total Spend This Month</div>
-            <div class="kpi-value" id="totalSpendMonth">$0.00</div>
-          </div>
-          <div class="kpi-card">
-            <div class="kpi-label">Overdue Amount</div>
-            <div class="kpi-value" id="overdueAmount">$0.00</div>
-          </div>
-          <div class="kpi-card">
-            <div class="kpi-label">Number of Invoices</div>
-            <div class="kpi-value" id="invoiceCount">0</div>
-          </div>
-          <div class="kpi-card">
-            <div class="kpi-label">Avg Days to Pay</div>
-            <div class="kpi-value" id="avgDaysToPay">0</div>
-          </div>
-        </div>
-
-        <!-- Charts Section -->
-        <div class="charts-grid" id="chartsContainer">
-          <div class="chart-card">
-            <h3>Spend Trend</h3>
-            <div style="position: relative; height: 300px;">
-              <canvas id="spendTrendChart"></canvas>
-            </div>
-          </div>
-          <div class="chart-card">
-            <h3>Vendor Spend</h3>
-            <div style="position: relative; height: 300px;">
-              <canvas id="vendorSpendChart"></canvas>
-            </div>
-          </div>
-          <div class="chart-card">
-            <h3>Invoice Count Over Time</h3>
-            <div style="position: relative; height: 300px;">
-              <canvas id="invoiceCountChart"></canvas>
-            </div>
-          </div>
-        </div>
-
-        <!-- Invoices Table -->
-        <div class="table-card">
-          <h3>All Invoices</h3>
-          <div class="table-container">
-            <table id="invoicesTable">
-              <thead>
-                <tr>
-                  <th onclick="sortTable(0)">Date <span class="sort-icon">↕</span></th>
-                  <th onclick="sortTable(1)">Supplier <span class="sort-icon">↕</span></th>
-                  <th onclick="sortTable(2)">Invoice ID <span class="sort-icon">↕</span></th>
-                  <th onclick="sortTable(3)">Amount <span class="sort-icon">↕</span></th>
-                  <th onclick="sortTable(4)">Status <span class="sort-icon">↕</span></th>
-                  <th onclick="sortTable(5)">Days to Pay <span class="sort-icon">↕</span></th>
-                </tr>
-              </thead>
-              <tbody id="invoicesTableBody">
-                <tr>
-                  <td colspan="6" class="empty-table">No invoices available. Load data to see invoices.</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Results Section -->
-    <div class="results-section">
-      <div class="card">
-        <div class="results-header">
-          <h2>📋 Extraction Results</h2>
-          <div style="display: flex; gap: 10px;">
-            <button class="btn btn-primary" id="fetchResultsBtn">
-              <span>📊 Load Analytics Data</span>
-            </button>
-            <button class="btn btn-secondary" id="clearResultsBtn">Clear Data</button>
-          </div>
-        </div>
-        <div id="resultsContainer">
-          <div class="empty-state">
-            <div class="empty-state-icon">📄</div>
-            <p>No results yet. Upload files to see extracted text here.</p>
-            <p style="margin-top: 10px; font-size: 0.9rem;">Or click "Fetch from DynamoDB" to load previous results.</p>
-          </div>
-        </div>
-      </div>
+    <!-- Results -->
+    <div class="card results-card">
+      <h2>📋 OCR Summaries</h2>
+      <div id="resultsContainer"></div>
     </div>
   </div>
 
