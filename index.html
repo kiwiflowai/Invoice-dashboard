@@ -8,6 +8,26 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <!-- LOGIN OVERLAY -->
+  <div id="loginOverlay" style="
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center;
+    z-index: 2000;
+  ">
+    <div style="
+      background: white; padding: 40px; border-radius: 12px; width: 320px; text-align: center;
+    ">
+      <h2>🔐 Login</h2>
+      <input type="text" id="usernameInput" placeholder="Username" style="width: 100%; padding: 10px; margin: 10px 0; border-radius: 6px; border: 1px solid #ccc;">
+      <input type="password" id="passwordInput" placeholder="Password" style="width: 100%; padding: 10px; margin: 10px 0; border-radius: 6px; border: 1px solid #ccc;">
+      <button id="loginBtn" class="btn btn-primary" style="width: 100%;">Login</button>
+      <p id="loginError" style="color: red; font-size: 0.85rem; margin-top: 10px; display: none;">Invalid credentials</p>
+    </div>
+  </div>
+
+  <!-- LOGOUT BUTTON -->
+  <button id="logoutBtn" class="btn btn-secondary" style="position: fixed; top: 20px; right: 20px; display: none;">Logout</button>
+
   <div class="container">
     <div class="header">
       <h1>📄 Document OCR</h1>
@@ -42,132 +62,24 @@
         </div>
       </div>
 
-      <!-- Stats Section -->
-      <!-- <div class="card">
-        <h2>📊 Statistics</h2>
-        <div class="stats">
-          <div class="stat-item">
-            <div class="stat-value" id="totalFiles">0</div>
-            <div class="stat-label">Total Files</div>
-          </div>
-          <div class="stat-item">
-            <div class="stat-value" id="processedFiles">0</div>
-            <div class="stat-label">Processed</div>
-          </div>
-          <div class="stat-item">
-            <div class="stat-value" id="successRate">0%</div>
-            <div class="stat-label">Success Rate</div>
-          </div>
-        </div>
-      </div>
-    </div> -->
-
-    <!-- Visualization Section -->
-    <!-- <div class="results-section">
-      <div class="card">
-        <h2>📊 Total Amount Visualization</h2>
-        <div style="margin-bottom: 20px; text-align: center;">
-          <div class="stat-item" style="max-width: 400px; margin: 0 auto;">
-            <div class="stat-value" id="totalAmountSum">$0.00</div>
-            <div class="stat-label">Total Across All Documents</div>
-          </div>
-        </div>
-        <div style="position: relative; height: 400px;">
-          <canvas id="amountChart"></canvas>
-        </div>
-      </div>
-    </div> -->
-
-    <!-- Vendor Analytics Dashboard Section -->
-    <!-- <div class="results-section">
-      <div class="dashboard-container">
-        <h2 class="dashboard-title">💼 Spend Analytics Dashboard</h2> -->
-        
-        <!-- KPI Cards -->
-        <!-- <div class="kpi-grid" id="kpiContainer">
-          <div class="kpi-card">
-            <div class="kpi-label">Total Spend This Month</div>
-            <div class="kpi-value" id="totalSpendMonth">$0.00</div>
-          </div>
-          <div class="kpi-card">
-            <div class="kpi-label">Overdue Amount</div>
-            <div class="kpi-value" id="overdueAmount">$0.00</div>
-          </div>
-          <div class="kpi-card">
-            <div class="kpi-label">Number of Invoices</div>
-            <div class="kpi-value" id="invoiceCount">0</div>
-          </div>
-          <div class="kpi-card">
-            <div class="kpi-label">Avg Days to Pay</div>
-            <div class="kpi-value" id="avgDaysToPay">0</div>
-          </div>
-        </div> -->
-
-        <!-- Charts Section -->
-        <!-- <div class="charts-grid" id="chartsContainer">
-          <div class="chart-card">
-            <h3>Spend Trend</h3>
-            <div style="position: relative; height: 300px;">
-              <canvas id="spendTrendChart"></canvas>
+      <!-- Results Section -->
+      <div class="results-section">
+        <div class="card">
+          <div class="results-header">
+            <h2>📋 Extraction Results</h2>
+            <div style="display: flex; gap: 10px;">
+              <button class="btn btn-primary" id="fetchResultsBtn">
+                <span>📊 Load Analytics Data</span>
+              </button>
+              <button class="btn btn-secondary" id="clearResultsBtn">Clear Data</button>
             </div>
           </div>
-          <div class="chart-card">
-            <h3>Vendor Spend</h3>
-            <div style="position: relative; height: 300px;">
-              <canvas id="vendorSpendChart"></canvas>
+          <div id="resultsContainer">
+            <div class="empty-state">
+              <div class="empty-state-icon">📄</div>
+              <p>No results yet. Upload files to see extracted text here.</p>
+              <p style="margin-top: 10px; font-size: 0.9rem;">Or click "Fetch from DynamoDB" to load previous results.</p>
             </div>
-          </div>
-          <div class="chart-card">
-            <h3>Invoice Count Over Time</h3>
-            <div style="position: relative; height: 300px;">
-              <canvas id="invoiceCountChart"></canvas>
-            </div>
-          </div>
-        </div> -->
-
-        <!-- Invoices Table -->
-        <!-- <div class="table-card">
-          <h3>All Invoices</h3>
-          <div class="table-container">
-            <table id="invoicesTable">
-              <thead>
-                <tr>
-                  <th onclick="sortTable(0)">Date <span class="sort-icon">↕</span></th>
-                  <th onclick="sortTable(1)">Supplier <span class="sort-icon">↕</span></th>
-                  <th onclick="sortTable(2)">Invoice ID <span class="sort-icon">↕</span></th>
-                  <th onclick="sortTable(3)">Amount <span class="sort-icon">↕</span></th>
-                  <th onclick="sortTable(4)">Status <span class="sort-icon">↕</span></th>
-                  <th onclick="sortTable(5)">Days to Pay <span class="sort-icon">↕</span></th>
-                </tr>
-              </thead>
-              <tbody id="invoicesTableBody">
-                <tr>
-                  <td colspan="6" class="empty-table">No invoices available. Load data to see invoices.</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-    </div> -->
-
-    <!-- Results Section -->
-    <div class="results-section">
-      <div class="card">
-        <div class="results-header">
-          <h2>📋 Extraction Results</h2>
-          <div style="display: flex; gap: 10px;">
-            <button class="btn btn-primary" id="fetchResultsBtn">
-              <span>📊 Load Analytics Data</span>
-            </button>
-            <button class="btn btn-secondary" id="clearResultsBtn">Clear Data</button>
-          </div>
-        </div>
-        <div id="resultsContainer">
-          <div class="empty-state">
-            <div class="empty-state-icon">📄</div>
-            <p>No results yet. Upload files to see extracted text here.</p>
-            <p style="margin-top: 10px; font-size: 0.9rem;">Or click "Fetch from DynamoDB" to load previous results.</p>
           </div>
         </div>
       </div>

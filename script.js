@@ -6,7 +6,50 @@ document.addEventListener('DOMContentLoaded', () => {
   let results = [];
   let uploading = new Set();
 
-  // DOM
+  // ---------------- LOGIN SYSTEM ----------------
+  const loginOverlay = document.getElementById("loginOverlay");
+  const usernameInput = document.getElementById("usernameInput");
+  const passwordInput = document.getElementById("passwordInput");
+  const loginBtn = document.getElementById("loginBtn");
+  const loginError = document.getElementById("loginError");
+  const logoutBtn = document.getElementById("logoutBtn");
+
+  const users = { "alice": "1234", "bob": "abcd" }; // prototype only
+
+  let currentUser = localStorage.getItem("currentUser");
+  if (currentUser) {
+    loginOverlay.style.display = "none";
+    logoutBtn.style.display = "block";
+  } else {
+    loginOverlay.style.display = "flex";
+    logoutBtn.style.display = "none";
+  }
+
+  loginBtn.addEventListener("click", () => {
+    const username = usernameInput.value.trim();
+    const password = passwordInput.value.trim();
+
+    if (users[username] && users[username] === password) {
+      localStorage.setItem("currentUser", username);
+      currentUser = username;
+      loginOverlay.style.display = "none";
+      logoutBtn.style.display = "block";
+      loginError.style.display = "none";
+      showNotification(`Welcome ${username}!`);
+    } else {
+      loginError.style.display = "block";
+    }
+  });
+
+  logoutBtn.addEventListener("click", () => {
+    localStorage.removeItem("currentUser");
+    currentUser = null;
+    loginOverlay.style.display = "flex";
+    logoutBtn.style.display = "none";
+    showNotification("Logged out");
+  });
+
+  // ---------------- DOM Elements ----------------
   const uploadArea = document.getElementById("uploadArea");
   const fileInput = document.getElementById("fileInput");
   const fileList = document.getElementById("fileList");
@@ -39,21 +82,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
     fileList.innerHTML = files.map((f, i) => {
       const isUploading = uploading.has(f.name);
-
       return `
         <div class="file-item">
-          <div>
-            ${getFileIcon(f.name)} <strong>${f.name}</strong>
-          </div>
-          <div>
-            ${isUploading ? "Uploading..." : ""}
+          <div>${getFileIcon(f.name)} <strong>${f.name}</strong></div>
+          <div>${isUploading ? "Uploading..." : ""}
             <button class="btn btn-remove" data-index="${i}">Remove</button>
           </div>
         </div>
       `;
     }).join("");
 
-    // attach remove handlers
     document.querySelectorAll(".btn-remove").forEach(btn => {
       btn.onclick = e => {
         const index = Number(e.target.dataset.index);
@@ -67,32 +105,22 @@ document.addEventListener('DOMContentLoaded', () => {
   function renderResults() {
     if (!results.length) {
       resultsContainer.innerHTML = `
-        <div class="empty-state">
-          📄 No results yet.
-        </div>
+        <div class="empty-state">📄 No results yet.</div>
       `;
       return;
     }
 
     resultsContainer.innerHTML = results.map(r => `
-  <div class="result-item">
-    <h4>
-      ${getFileIcon(r.fileName)} ${r.fileName}
-      <span class="result-badge">OCR Result</span>
-    </h4>
-
-    <div class="result-summary">
-      ${r.summary || "No summary available"}
-    </div>
-  </div>
-`).join("");
-
+      <div class="result-item">
+        <h4>${getFileIcon(r.fileName)} ${r.fileName}<span class="result-badge">OCR Result</span></h4>
+        <div class="result-summary">${r.summary || "No summary available"}</div>
+      </div>
+    `).join("");
   }
 
   // ---------------- File Handling ----------------
   function addFiles(newFiles) {
     if (!newFiles.length) return;
-
     files.push(...newFiles);
     renderFiles();
     autoUpload();
@@ -104,9 +132,7 @@ document.addEventListener('DOMContentLoaded', () => {
       !results.some(r => r.fileName === f.name)
     );
 
-    for (const file of pending) {
-      uploadFile(file);
-    }
+    for (const file of pending) uploadFile(file);
   }
 
   async function uploadFile(file) {
@@ -117,23 +143,15 @@ document.addEventListener('DOMContentLoaded', () => {
       const res = await fetch(apiUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          fileName: file.name,
-          fileType: file.type
-        })
+        body: JSON.stringify({ fileName: file.name, fileType: file.type })
       });
-
       const data = await res.json();
       if (!data.uploadUrl) throw new Error("No upload URL returned");
 
-      await fetch(data.uploadUrl, {
-        method: "PUT",
-        headers: { "Content-Type": file.type },
-        body: file
-      });
+      await fetch(data.uploadUrl, { method: "PUT", headers: { "Content-Type": file.type }, body: file });
 
       results.push({
-        fileName: file.name,
+        fileName: `${currentUser}: ${file.name}`,
         summary: "Uploaded successfully. OCR processing in progress..."
       });
 
@@ -157,7 +175,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const items = data.items || [];
 
       results = items.map(item => ({
-        fileName: item.fileName || item.filename || "Unknown",
+        fileName: `${currentUser}: ${item.fileName || "Unknown"}`,
         summary: item.summary || "No summary"
       }));
 
@@ -183,25 +201,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // ---------------- Upload UI ----------------
   uploadArea.onclick = () => fileInput.click();
-
-  uploadArea.ondragover = e => {
-    e.preventDefault();
-    uploadArea.classList.add("dragover");
-  };
-
-  uploadArea.ondragleave = () => {
-    uploadArea.classList.remove("dragover");
-  };
-
-  uploadArea.ondrop = e => {
-    e.preventDefault();
-    uploadArea.classList.remove("dragover");
-    addFiles(Array.from(e.dataTransfer.files));
-  };
-
-  fileInput.onchange = e => {
-    addFiles(Array.from(e.target.files));
-  };
+  uploadArea.ondragover = e => { e.preventDefault(); uploadArea.classList.add("dragover"); };
+  uploadArea.ondragleave = () => { uploadArea.classList.remove("dragover"); };
+  uploadArea.ondrop = e => { e.preventDefault(); uploadArea.classList.remove("dragover"); addFiles(Array.from(e.dataTransfer.files)); };
+  fileInput.onchange = e => addFiles(Array.from(e.target.files));
 
   // Init
   renderFiles();
