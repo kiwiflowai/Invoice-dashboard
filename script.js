@@ -16,50 +16,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const users = { "alice": "1234", "bob": "abcd" }; // prototype only
 
-  let currentUser = localStorage.getItem("currentUser");
-  if (currentUser) {
-    loginOverlay.style.display = "none";
-    logoutBtn.style.display = "block";
-  } else {
-    loginOverlay.style.display = "flex";
-    logoutBtn.style.display = "none";
-  }
+  let currentUser = null; // always start with no user logged in
+  loginOverlay.style.display = "flex";
+  logoutBtn.style.display = "none";
 
-  loginBtn.addEventListener("click", () => {
-    const username = usernameInput.value.trim();
-    const password = passwordInput.value.trim();
-
-    if (users[username] && users[username] === password) {
-      localStorage.setItem("currentUser", username);
-      currentUser = username;
-      loginOverlay.style.display = "none";
-      logoutBtn.style.display = "block";
-      loginError.style.display = "none";
-      showNotification(`Welcome ${username}!`);
-    } else {
-      loginError.style.display = "block";
-    }
-  });
-
-  logoutBtn.addEventListener("click", () => {
-    localStorage.removeItem("currentUser");
-    currentUser = null;
-    loginOverlay.style.display = "flex";
-    logoutBtn.style.display = "none";
-    showNotification("Logged out");
-  });
-
-  // ---------------- DOM Elements ----------------
-  const uploadArea = document.getElementById("uploadArea");
-  const fileInput = document.getElementById("fileInput");
-  const fileList = document.getElementById("fileList");
-  const clearBtn = document.getElementById("clearBtn");
-  const resultsContainer = document.getElementById("resultsContainer");
-  const fetchResultsBtn = document.getElementById("fetchResultsBtn");
-  const clearResultsBtn = document.getElementById("clearResultsBtn");
-  const notification = document.getElementById("notification");
 
   // ---------------- Utils ----------------
+  function requireLogin() {
+    if (!currentUser) {
+      showNotification("Please login first", "error");
+      loginOverlay.style.display = "flex";
+      return false;
+    }
+    return true;
+  }
+
   function showNotification(msg, type = "success") {
     notification.textContent = msg;
     notification.className = `notification ${type} show`;
@@ -72,6 +43,77 @@ document.addEventListener('DOMContentLoaded', () => {
     if (ext === "pdf") return "📄";
     return "📎";
   }
+
+  // ---------------- State Helpers ----------------
+  function resetState() {
+    files = [];
+    results = [];
+    uploading.clear();
+    renderFiles();
+    renderResults();
+  }
+
+  async function loadUserResults() {
+    if (!currentUser) return;
+
+    try {
+      const res = await fetch(`${resultsApiUrl}?userId=${encodeURIComponent(currentUser)}`);
+      const data = await res.json();
+      const items = data.items || [];
+
+      results = items.map(item => ({
+        fileName: (item.filename || "Unknown").split("/").pop(),
+        summary: item.summary || "No summary"
+      }));
+
+      renderResults();
+      showNotification("User results loaded");
+    } catch (err) {
+      console.error(err);
+      showNotification("Failed to load user results", "error");
+    }
+  }
+
+  // ---------------- LOGIN / LOGOUT ----------------
+  loginBtn.addEventListener("click", async () => {
+    const username = usernameInput.value.trim();
+    const password = passwordInput.value.trim();
+
+    if (users[username] && users[username] === password) {
+      localStorage.setItem("currentUser", username);
+      currentUser = username;
+      loginOverlay.style.display = "none";
+      logoutBtn.style.display = "block";
+      loginError.style.display = "none";
+
+      resetState();            // Clear old files/results
+      await loadUserResults(); // Load current user's previous results
+
+      showNotification(`Welcome ${username}!`);
+    } else {
+      loginError.style.display = "block";
+    }
+  });
+
+  logoutBtn.addEventListener("click", () => {
+    localStorage.removeItem("currentUser");
+    currentUser = null;
+    loginOverlay.style.display = "flex";
+    logoutBtn.style.display = "none";
+
+    resetState(); // Clear everything
+    showNotification("Logged out");
+  });
+
+  // ---------------- DOM Elements ----------------
+  const uploadArea = document.getElementById("uploadArea");
+  const fileInput = document.getElementById("fileInput");
+  const fileList = document.getElementById("fileList");
+  const clearBtn = document.getElementById("clearBtn");
+  const resultsContainer = document.getElementById("resultsContainer");
+  const fetchResultsBtn = document.getElementById("fetchResultsBtn");
+  const clearResultsBtn = document.getElementById("clearResultsBtn");
+  const notification = document.getElementById("notification");
 
   // ---------------- Render Files ----------------
   function renderFiles() {
@@ -136,6 +178,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   async function uploadFile(file) {
+    if (!requireLogin()) return;
     uploading.add(file.name);
     renderFiles();
 
@@ -143,7 +186,11 @@ document.addEventListener('DOMContentLoaded', () => {
       const res = await fetch(apiUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fileName: file.name, fileType: file.type })
+        body: JSON.stringify({
+          fileName: file.name,
+          fileType: file.type,
+          userId: currentUser
+        })
       });
       const data = await res.json();
       if (!data.uploadUrl) throw new Error("No upload URL returned");
@@ -151,7 +198,7 @@ document.addEventListener('DOMContentLoaded', () => {
       await fetch(data.uploadUrl, { method: "PUT", headers: { "Content-Type": file.type }, body: file });
 
       results.push({
-        fileName: `${currentUser}: ${file.name}`,
+        fileName: file.name,
         summary: "Uploaded successfully. OCR processing in progress..."
       });
 
@@ -168,25 +215,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // ---------------- Fetch Results ----------------
-  fetchResultsBtn.addEventListener("click", async () => {
-    try {
-      const res = await fetch(resultsApiUrl);
-      const data = await res.json();
-      const items = data.items || [];
-
-      results = items.map(item => ({
-        fileName: `${currentUser}: ${item.fileName || "Unknown"}`,
-        summary: item.summary || "No summary"
-      }));
-
-      renderResults();
-      showNotification("Results loaded");
-
-    } catch (err) {
-      console.error(err);
-      showNotification("Failed to fetch results", "error");
-    }
-  });
+  fetchResultsBtn.addEventListener("click", loadUserResults);
 
   clearResultsBtn.addEventListener("click", () => {
     results = [];
