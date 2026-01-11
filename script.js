@@ -16,9 +16,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const users = { "alice": "1234", "bob": "abcd" }; // prototype only
 
-  let currentUser = null; // always start with no user logged in
+ let currentUser = null; // always start with no user logged in
   loginOverlay.style.display = "flex";
-  logoutBtn.style.display = "none";
+logoutBtn.style.display = "none";
 
 
   // ---------------- Utils ----------------
