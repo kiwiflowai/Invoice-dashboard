@@ -1,4 +1,8 @@
 document.addEventListener('DOMContentLoaded', () => {
+  // ---------------- FORCE LOGOUT ON REFRESH ----------------
+  localStorage.removeItem("currentUser");
+  localStorage.removeItem("token");
+
   const apiUrl = "https://6kl77b9h06.execute-api.ap-southeast-2.amazonaws.com/prod/upload";
   const resultsApiUrl = "https://a8uoo3tjc6.execute-api.ap-southeast-2.amazonaws.com/prod/results";
   const LOGIN_API = "https://9gyrocprv5.execute-api.ap-southeast-2.amazonaws.com/login";
@@ -17,22 +21,30 @@ document.addEventListener('DOMContentLoaded', () => {
   const logoutBtn = document.getElementById("logoutBtn");
   const notification = document.getElementById("notification");
 
-  let currentUser = localStorage.getItem("currentUser") || null;
+  let currentUser = null; // start fresh every reload
 
-  // Show/hide overlay
-  loginOverlay.style.display = currentUser ? "none" : "flex";
-  logoutBtn.style.display = currentUser ? "block" : "none";
-
+  // ---------------- UTILITY FUNCTIONS ----------------
   function showNotification(msg, type = "success") {
     notification.textContent = msg;
     notification.className = `notification ${type} show`;
     setTimeout(() => notification.classList.remove("show"), 3000);
   }
 
-  
+  function showLogin() {
+    loginOverlay.style.display = "flex";
+    logoutBtn.style.display = "none";
+  }
+
+  function hideLogin() {
+    loginOverlay.style.display = "none";
+    logoutBtn.style.display = "block";
+  }
+
+  // ---------------- INITIAL LOGIN CHECK ----------------
+  showLogin(); // always show login overlay on page load
 
   // ---------------- LOGIN / SIGNUP ----------------
-  let isLogin = true; // true = login, false = signup
+  let isLogin = true;
   loginBtn.addEventListener("click", async () => {
     const username = usernameInput.value.trim();
     const password = passwordInput.value.trim();
@@ -54,10 +66,8 @@ document.addEventListener('DOMContentLoaded', () => {
         localStorage.setItem("currentUser", currentUser);
         localStorage.setItem("token", data.token || "");
 
-        loginOverlay.style.display = "none";
-        logoutBtn.style.display = "block";
+        hideLogin(); // hide login overlay after login
         loginError.style.display = "none";
-
         showNotification(`Welcome ${currentUser}!`);
 
         usernameInput.value = "";
@@ -75,8 +85,11 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // Toggle login/signup
-  usernameInput.insertAdjacentHTML("afterend", `<p id="toggleAuth" style="cursor:pointer;color:#667eea;margin-top:10px;text-decoration:underline;">Don't have an account? Sign Up</p>`);
+  // Toggle login/signup link
+  usernameInput.insertAdjacentHTML(
+    "afterend",
+    `<p id="toggleAuth" style="cursor:pointer;color:#667eea;margin-top:10px;text-decoration:underline;">Don't have an account? Sign Up</p>`
+  );
   const toggleAuth = document.getElementById("toggleAuth");
   toggleAuth.addEventListener("click", () => {
     isLogin = !isLogin;
@@ -92,9 +105,7 @@ document.addEventListener('DOMContentLoaded', () => {
     localStorage.removeItem("currentUser");
     localStorage.removeItem("token");
     currentUser = null;
-    loginOverlay.style.display = "flex";
-    logoutBtn.style.display = "none";
-
+    showLogin();
     resetState();
     showNotification("Logged out");
   });
@@ -111,7 +122,7 @@ document.addEventListener('DOMContentLoaded', () => {
   function requireLogin() {
     if (!currentUser) {
       showNotification("Please login first", "error");
-      loginOverlay.style.display = "flex";
+      showLogin();
       return false;
     }
     return true;
@@ -137,17 +148,9 @@ document.addEventListener('DOMContentLoaded', () => {
       const uploadingText = uploading.has(f.name) ? "Uploading..." : "";
       return `<div class="file-item">
         <div>${getFileIcon(f.name)} <strong>${f.name}</strong></div>
-        <div>${uploadingText} <button class="btn-remove" data-index="${i}">Remove</button></div>
+        <div>${uploadingText}</div>
       </div>`;
     }).join("");
-
-    document.querySelectorAll(".btn-remove").forEach(btn => {
-      btn.onclick = e => {
-        const idx = Number(e.target.dataset.index);
-        files.splice(idx,1);
-        renderFiles();
-      };
-    });
   }
 
   function renderResults() {
