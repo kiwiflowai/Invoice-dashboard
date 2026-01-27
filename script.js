@@ -18,7 +18,11 @@ document.addEventListener('DOMContentLoaded', () => {
   const passwordInput = document.getElementById("passwordInput");
   const loginBtn = document.getElementById("loginBtn");
   const loginError = document.getElementById("loginError");
+  const loginTitle = document.getElementById("loginTitle");
+  const toggleAuth = document.getElementById("toggleAuth");
   const logoutBtn = document.getElementById("logoutBtn");
+  const userInfo = document.getElementById("userInfo");
+  const userName = userInfo ? userInfo.querySelector(".user-name") : null;
   const notification = document.getElementById("notification");
 
   let currentUser = null; // start fresh every reload
@@ -33,11 +37,20 @@ document.addEventListener('DOMContentLoaded', () => {
   function showLogin() {
     loginOverlay.style.display = "flex";
     logoutBtn.style.display = "none";
+    if (userInfo) {
+      userInfo.style.display = "none";
+    }
   }
 
   function hideLogin() {
     loginOverlay.style.display = "none";
-    logoutBtn.style.display = "block";
+    logoutBtn.style.display = "flex";
+    if (userInfo) {
+      userInfo.style.display = "flex";
+      if (currentUser && userName) {
+        userName.textContent = currentUser;
+      }
+    }
   }
 
   // ---------------- INITIAL LOGIN CHECK ----------------
@@ -48,7 +61,11 @@ document.addEventListener('DOMContentLoaded', () => {
   loginBtn.addEventListener("click", async () => {
     const username = usernameInput.value.trim();
     const password = passwordInput.value.trim();
-    if (!username || !password) return alert("Enter username and password");
+    if (!username || !password) {
+      loginError.classList.add("show");
+      loginError.textContent = "Please enter username and password";
+      return;
+    }
 
     const endpoint = isLogin ? LOGIN_API : SIGNUP_API;
 
@@ -67,7 +84,7 @@ document.addEventListener('DOMContentLoaded', () => {
         localStorage.setItem("token", data.token || "");
 
         hideLogin(); // hide login overlay after login
-        loginError.style.display = "none";
+        loginError.classList.remove("show");
         showNotification(`Welcome ${currentUser}!`);
 
         usernameInput.value = "";
@@ -76,28 +93,28 @@ document.addEventListener('DOMContentLoaded', () => {
         resetState();
         await loadUserResults();
       } else {
-        loginError.style.display = "block";
-        loginError.innerText = data.error || "Invalid credentials";
+        loginError.classList.add("show");
+        loginError.textContent = data.error || "Invalid credentials";
       }
     } catch (err) {
       console.error(err);
+      loginError.classList.add("show");
+      loginError.textContent = "Server error. Please try again.";
       showNotification("Server error", "error");
     }
   });
 
-  // Toggle login/signup link
-  usernameInput.insertAdjacentHTML(
-    "afterend",
-    `<p id="toggleAuth" style="cursor:pointer;color:#667eea;margin-top:10px;text-decoration:underline;">Don't have an account? Sign Up</p>`
-  );
-  const toggleAuth = document.getElementById("toggleAuth");
+  // Toggle login/signup
   toggleAuth.addEventListener("click", () => {
     isLogin = !isLogin;
-    loginBtn.innerText = isLogin ? "Login" : "Sign Up";
-    toggleAuth.innerText = isLogin
-      ? "Don't have an account? Sign Up"
-      : "Already have an account? Login";
-    loginError.style.display = "none";
+    loginBtn.textContent = isLogin ? "Sign In" : "Sign Up";
+    loginTitle.textContent = isLogin ? "Welcome Back" : "Create Account";
+    toggleAuth.innerHTML = isLogin
+      ? `Don't have an account? <span>Sign Up</span>`
+      : `Already have an account? <span>Sign In</span>`;
+    loginError.classList.remove("show");
+    usernameInput.value = "";
+    passwordInput.value = "";
   });
 
   // ---------------- LOGOUT ----------------
@@ -107,7 +124,7 @@ document.addEventListener('DOMContentLoaded', () => {
     currentUser = null;
     showLogin();
     resetState();
-    showNotification("Logged out");
+    showNotification("Logged out successfully");
   });
 
   // ---------------- OCR FILE UPLOAD ----------------
@@ -143,25 +160,60 @@ document.addEventListener('DOMContentLoaded', () => {
     renderResults();
   }
 
+  function formatFileSize(bytes) {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+  }
+
   function renderFiles() {
-    fileList.innerHTML = files.map((f,i) => {
-      const uploadingText = uploading.has(f.name) ? "Uploading..." : "";
+    if (files.length === 0) {
+      fileList.innerHTML = "";
+      return;
+    }
+    
+    fileList.innerHTML = files.map((f) => {
+      const isUploading = uploading.has(f.name);
+      const fileSize = f.size ? formatFileSize(f.size) : "";
+      const statusClass = isUploading ? "status-uploading" : "status-pending";
+      const statusText = isUploading ? "Uploading..." : "Pending";
+      
       return `<div class="file-item">
-        <div>${getFileIcon(f.name)} <strong>${f.name}</strong></div>
-        <div>${uploadingText}</div>
+        <div class="file-info">
+          <div class="file-icon">${getFileIcon(f.name)}</div>
+          <div class="file-details">
+            <div class="file-name">${f.name}</div>
+            ${fileSize ? `<div class="file-size">${fileSize}</div>` : ""}
+          </div>
+        </div>
+        <div class="file-status">
+          <span class="status-badge ${statusClass}">${statusText}</span>
+        </div>
       </div>`;
     }).join("");
   }
 
   function renderResults() {
     if (!results.length) {
-      resultsContainer.innerHTML = `<div class="empty-state">📄 No results yet.</div>`;
+      resultsContainer.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-state-icon">📄</div>
+          <h3>No results yet</h3>
+          <p>Upload files to see extracted text here, or load previous results from your account.</p>
+        </div>`;
       return;
     }
     resultsContainer.innerHTML = results.map(r => `
       <div class="result-item">
-        <h4>${getFileIcon(r.fileName)} ${r.fileName}</h4>
-        <div>${r.summary || "No summary"}</div>
+        <div class="result-header">
+          <div class="result-title">
+            <span>${getFileIcon(r.fileName)}</span>
+            <span>${r.fileName}</span>
+          </div>
+        </div>
+        <div class="result-content">${r.summary || "No summary available"}</div>
       </div>
     `).join("");
   }

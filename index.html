@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -10,76 +9,124 @@
 </head>
 <body>
   <!-- LOGIN OVERLAY -->
-  <div id="loginOverlay" style="
-    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-    background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center;
-    z-index: 2000;
-  ">
-    <div style="
-      background: white; padding: 40px; border-radius: 12px; width: 320px; text-align: center;
-    ">
-      <h2>🔐 Login</h2>
-      <input type="text" id="usernameInput" placeholder="Username" style="width: 100%; padding: 10px; margin: 10px 0; border-radius: 6px; border: 1px solid #ccc;">
-      <input type="password" id="passwordInput" placeholder="Password" style="width: 100%; padding: 10px; margin: 10px 0; border-radius: 6px; border: 1px solid #ccc;">
-      <button id="loginBtn" class="btn btn-primary" style="width: 100%;">Login</button>
-      <p id="loginError" style="color: red; font-size: 0.85rem; margin-top: 10px; display: none;">Invalid credentials</p>
+  <div id="loginOverlay" class="login-overlay">
+    <div class="login-modal">
+      <div class="login-header">
+        <div class="login-icon">🔐</div>
+        <h2 id="loginTitle">Welcome Back</h2>
+        <p class="login-subtitle">Sign in to your account</p>
+      </div>
+      <div class="login-body">
+        <div class="form-group">
+          <label for="usernameInput">Username</label>
+          <input type="text" id="usernameInput" placeholder="Enter your username" class="form-input">
+        </div>
+        <div class="form-group">
+          <label for="passwordInput">Password</label>
+          <input type="password" id="passwordInput" placeholder="Enter your password" class="form-input">
+        </div>
+        <button id="loginBtn" class="btn btn-primary btn-block">Sign In</button>
+        <p id="loginError" class="error-message">Invalid credentials</p>
+        <p id="toggleAuth" class="auth-toggle">Don't have an account? <span>Sign Up</span></p>
+      </div>
     </div>
   </div>
 
-  <!-- LOGOUT BUTTON -->
-  <button id="logoutBtn" class="btn btn-secondary" style="position: fixed; top: 20px; right: 20px; display: none;">Logout</button>
-
-  <div class="container">
-    <div class="header">
-      <h1>📄 Document OCR</h1>
-      <p>AI-Powered Text Extraction from Documents and Images</p>
+  <!-- NAVBAR -->
+  <nav class="navbar">
+    <div class="navbar-content">
+      <div class="navbar-brand">
+        <div class="brand-icon">📄</div>
+        <div class="brand-text">
+          <h1>Document OCR</h1>
+          <span class="brand-tagline">AI-Powered Extraction</span>
+        </div>
+      </div>
+      <div class="navbar-actions">
+        <div class="user-info" id="userInfo" style="display: none;">
+          <span class="user-name"></span>
+        </div>
+        <button id="logoutBtn" class="btn btn-ghost" style="display: none;">
+          <span>Logout</span>
+        </button>
+      </div>
     </div>
+  </nav>
 
+  <!-- MAIN CONTENT -->
+  <div class="app-container">
     <div class="main-content">
       <!-- Upload Section -->
-      <div class="card">
-        <h2>📤 Upload Documents</h2>
-        <div class="upload-area" id="uploadArea">
-          <div class="upload-icon">📁</div>
-          <p><strong>Drag & drop files here</strong></p>
-          <p>or click to browse</p>
-          <p style="font-size: 0.9rem; color: #999; margin-top: 10px;">
-            Supports: PDF, PNG, JPG, TIFF, GIF, BMP, WEBP
-          </p>
-          <p style="font-size: 0.85rem; color: #667eea; margin-top: 10px; font-weight: 600;">
-            Files will upload automatically
-          </p>
-        </div>
-        <input type="file" id="fileInput" class="file-input" multiple 
-               accept=".pdf,.png,.jpg,.jpeg,.tiff,.tif,.gif,.bmp,.webp">
-        
-        <div class="file-list" id="fileList"></div>
-        
-        <div style="margin-top: 20px; display: flex; gap: 10px; justify-content: space-between; align-items: center;">
-          <div class="upload-stats">
-            <span id="uploadProgress">Ready to upload</span>
+      <div class="card upload-card">
+        <div class="card-header">
+          <div class="card-header-content">
+            <div class="card-icon">📤</div>
+            <div>
+              <h2>Upload Documents</h2>
+              <p class="card-subtitle">Process documents with AI-powered OCR</p>
+            </div>
           </div>
-          <button class="btn btn-secondary" id="clearBtn">Clear All</button>
+        </div>
+        <div class="card-body">
+          <div class="upload-area" id="uploadArea">
+            <div class="upload-content">
+              <div class="upload-icon-large">📁</div>
+              <h3>Drag & drop files here</h3>
+              <p class="upload-hint">or click to browse from your device</p>
+              <div class="upload-formats">
+                <span class="format-badge">PDF</span>
+                <span class="format-badge">PNG</span>
+                <span class="format-badge">JPG</span>
+                <span class="format-badge">TIFF</span>
+                <span class="format-badge">GIF</span>
+                <span class="format-badge">BMP</span>
+                <span class="format-badge">WEBP</span>
+              </div>
+              <p class="upload-auto">Files will upload automatically</p>
+            </div>
+          </div>
+          <input type="file" id="fileInput" class="file-input" multiple 
+                 accept=".pdf,.png,.jpg,.jpeg,.tiff,.tif,.gif,.bmp,.webp">
+          
+          <div class="file-list" id="fileList"></div>
+          
+          <div class="upload-footer">
+            <div class="upload-stats">
+              <span id="uploadProgress">Ready to upload</span>
+            </div>
+            <button class="btn btn-secondary" id="clearBtn">
+              <span>Clear All</span>
+            </button>
+          </div>
         </div>
       </div>
 
       <!-- Results Section -->
-      <div class="results-section">
-        <div class="card">
-          <div class="results-header">
-            <h2>📋 Extraction Results</h2>
-            <div style="display: flex; gap: 10px;">
-              <button class="btn btn-primary" id="fetchResultsBtn">
-                <span>📊 Load Analytics Data</span>
-              </button>
-              <button class="btn btn-secondary" id="clearResultsBtn">Clear Data</button>
+      <div class="card results-card">
+        <div class="card-header">
+          <div class="card-header-content">
+            <div class="card-icon">📋</div>
+            <div>
+              <h2>Extraction Results</h2>
+              <p class="card-subtitle">View and manage your processed documents</p>
             </div>
           </div>
+          <div class="card-actions">
+            <button class="btn btn-primary" id="fetchResultsBtn">
+              <span>📊</span>
+              <span>Load Analytics</span>
+            </button>
+            <button class="btn btn-secondary" id="clearResultsBtn">
+              <span>Clear Data</span>
+            </button>
+          </div>
+        </div>
+        <div class="card-body">
           <div id="resultsContainer">
             <div class="empty-state">
               <div class="empty-state-icon">📄</div>
-              <p>No results yet. Upload files to see extracted text here.</p>
-              <p style="margin-top: 10px; font-size: 0.9rem;">Or click "Fetch from DynamoDB" to load previous results.</p>
+              <h3>No results yet</h3>
+              <p>Upload files to see extracted text here, or load previous results from your account.</p>
             </div>
           </div>
         </div>
