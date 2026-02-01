@@ -29,28 +29,34 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // ---------------- UTILITY FUNCTIONS ----------------
   function showNotification(msg, type = "success") {
+    if (!notification) return;
     notification.textContent = msg;
     notification.className = `notification ${type} show`;
     setTimeout(() => notification.classList.remove("show"), 3000);
   }
 
   function showLogin() {
-    loginOverlay.style.display = "flex";
-    logoutBtn.style.display = "none";
-    if (userInfo) {
-      userInfo.style.display = "none";
-    }
+    document.body.classList.add("login-overlay-visible");
+    if (loginOverlay) loginOverlay.style.display = "flex";
+    if (logoutBtn) logoutBtn.style.display = "none";
+    if (userInfo) userInfo.style.display = "none";
   }
 
   function hideLogin() {
-    loginOverlay.style.display = "none";
-    logoutBtn.style.display = "flex";
+    document.body.classList.remove("login-overlay-visible");
+    if (loginOverlay) loginOverlay.style.display = "none";
+    if (logoutBtn) logoutBtn.style.display = "flex";
     if (userInfo) {
       userInfo.style.display = "flex";
-      if (currentUser && userName) {
-        userName.textContent = currentUser;
-      }
+      if (currentUser && userName) userName.textContent = currentUser;
     }
+  }
+
+  function escapeHtml(text) {
+    if (text == null) return "";
+    const div = document.createElement("div");
+    div.textContent = text;
+    return div.innerHTML;
   }
 
   // ---------------- INITIAL LOGIN CHECK ----------------
@@ -58,16 +64,24 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // ---------------- LOGIN / SIGNUP ----------------
   let isLogin = true;
-  loginBtn.addEventListener("click", async () => {
+  if (loginBtn) loginBtn.addEventListener("click", async () => {
     const username = usernameInput.value.trim();
     const password = passwordInput.value.trim();
     if (!username || !password) {
-      loginError.classList.add("show");
-      loginError.textContent = "Please enter username and password";
+      if (loginError) {
+        loginError.classList.add("show");
+        loginError.textContent = "Please enter username and password";
+      }
       return;
     }
 
     const endpoint = isLogin ? LOGIN_API : SIGNUP_API;
+    loginBtn.classList.add("is-loading");
+    loginBtn.disabled = true;
+    if (loginError) {
+      loginError.classList.remove("show");
+      loginError.textContent = "";
+    }
 
     try {
       const res = await fetch(endpoint, {
@@ -76,15 +90,26 @@ document.addEventListener('DOMContentLoaded', () => {
         body: JSON.stringify({ username, password }),
       });
 
-      const data = await res.json();
+      let data;
+      try {
+        data = await res.json();
+      } catch (parseErr) {
+        if (loginError) {
+          loginError.classList.add("show");
+          loginError.textContent = res.status >= 500
+            ? "Server is temporarily unavailable. Try again later."
+            : "Invalid response from server.";
+        }
+        return;
+      }
 
       if (res.ok) {
         currentUser = data.userId || username;
         localStorage.setItem("currentUser", currentUser);
         localStorage.setItem("token", data.token || "");
 
-        hideLogin(); // hide login overlay after login
-        loginError.classList.remove("show");
+        hideLogin();
+        if (loginError) loginError.classList.remove("show");
         showNotification(`Welcome ${currentUser}!`);
 
         usernameInput.value = "";
@@ -93,39 +118,65 @@ document.addEventListener('DOMContentLoaded', () => {
         resetState();
         await loadUserResults();
       } else {
-        loginError.classList.add("show");
-        loginError.textContent = data.error || "Invalid credentials";
+        if (loginError) {
+          loginError.classList.add("show");
+          loginError.textContent = data.error || "Invalid credentials";
+        }
       }
     } catch (err) {
       console.error(err);
-      loginError.classList.add("show");
-      loginError.textContent = "Server error. Please try again.";
-      showNotification("Server error", "error");
+      if (loginError) {
+        loginError.classList.add("show");
+        const isNetwork = err.name === "TypeError" && (err.message || "").includes("fetch");
+        loginError.textContent = isNetwork
+          ? "Network error. Check your connection or try again later."
+          : "Something went wrong. Please try again.";
+      }
+      showNotification("Error", "error");
+    } finally {
+      loginBtn.classList.remove("is-loading");
+      loginBtn.disabled = false;
     }
   });
 
   // Toggle login/signup
-  toggleAuth.addEventListener("click", () => {
+  function switchAuthMode() {
     isLogin = !isLogin;
-    loginBtn.textContent = isLogin ? "Sign In" : "Sign Up";
-    loginTitle.textContent = isLogin ? "Welcome Back" : "Create Account";
-    toggleAuth.innerHTML = isLogin
-      ? `Don't have an account? <span>Sign Up</span>`
-      : `Already have an account? <span>Sign In</span>`;
-    loginError.classList.remove("show");
+    if (loginBtn) loginBtn.textContent = isLogin ? "Sign In" : "Sign Up";
+    if (loginTitle) loginTitle.textContent = isLogin ? "Welcome Back" : "Create Account";
+    if (toggleAuth) {
+      toggleAuth.innerHTML = isLogin
+        ? `Don't have an account? <span>Sign Up</span>`
+        : `Already have an account? <span>Sign In</span>`;
+    }
+    if (loginError) {
+      loginError.classList.remove("show");
+      loginError.textContent = "";
+    }
     usernameInput.value = "";
     passwordInput.value = "";
-  });
+  }
+  if (toggleAuth) {
+    toggleAuth.addEventListener("click", switchAuthMode);
+    toggleAuth.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        switchAuthMode();
+      }
+    });
+  }
 
   // ---------------- LOGOUT ----------------
-  logoutBtn.addEventListener("click", () => {
-    localStorage.removeItem("currentUser");
-    localStorage.removeItem("token");
-    currentUser = null;
-    showLogin();
-    resetState();
-    showNotification("Logged out successfully");
-  });
+  if (logoutBtn) {
+    logoutBtn.addEventListener("click", () => {
+      localStorage.removeItem("currentUser");
+      localStorage.removeItem("token");
+      currentUser = null;
+      showLogin();
+      resetState();
+      showNotification("Logged out successfully");
+    });
+  }
 
   // ---------------- OCR FILE UPLOAD ----------------
   const uploadArea = document.getElementById("uploadArea");
@@ -169,23 +220,23 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function renderFiles() {
+    if (!fileList) return;
     if (files.length === 0) {
       fileList.innerHTML = "";
       return;
     }
-    
     fileList.innerHTML = files.map((f) => {
       const isUploading = uploading.has(f.name);
       const fileSize = f.size ? formatFileSize(f.size) : "";
       const statusClass = isUploading ? "status-uploading" : "status-pending";
       const statusText = isUploading ? "Uploading..." : "Pending";
-      
+      const safeName = escapeHtml(f.name);
       return `<div class="file-item">
         <div class="file-info">
           <div class="file-icon">${getFileIcon(f.name)}</div>
           <div class="file-details">
-            <div class="file-name">${f.name}</div>
-            ${fileSize ? `<div class="file-size">${fileSize}</div>` : ""}
+            <div class="file-name">${safeName}</div>
+            ${fileSize ? `<div class="file-size">${escapeHtml(fileSize)}</div>` : ""}
           </div>
         </div>
         <div class="file-status">
@@ -196,6 +247,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function renderResults() {
+    if (!resultsContainer) return;
     if (!results.length) {
       resultsContainer.innerHTML = `
         <div class="empty-state">
@@ -205,17 +257,19 @@ document.addEventListener('DOMContentLoaded', () => {
         </div>`;
       return;
     }
-    resultsContainer.innerHTML = results.map(r => `
-      <div class="result-item">
+    resultsContainer.innerHTML = results.map((r) => {
+      const safeFileName = escapeHtml(r.fileName);
+      const safeSummary = escapeHtml(r.summary || "No summary available");
+      return `<div class="result-item">
         <div class="result-header">
           <div class="result-title">
             <span>${getFileIcon(r.fileName)}</span>
-            <span>${r.fileName}</span>
+            <span>${safeFileName}</span>
           </div>
         </div>
-        <div class="result-content">${r.summary || "No summary available"}</div>
-      </div>
-    `).join("");
+        <div class="result-content">${safeSummary}</div>
+      </div>`;
+    }).join("");
   }
 
   function addFiles(newFiles) {
@@ -276,15 +330,21 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  fetchResultsBtn.addEventListener("click", loadUserResults);
-  clearResultsBtn.addEventListener("click", () => { results=[]; renderResults(); });
-  clearBtn.addEventListener("click", () => { files=[]; uploading.clear(); renderFiles(); });
+  if (fetchResultsBtn) fetchResultsBtn.addEventListener("click", loadUserResults);
+  if (clearResultsBtn) clearResultsBtn.addEventListener("click", () => { results = []; renderResults(); });
+  if (clearBtn) clearBtn.addEventListener("click", () => { files = []; uploading.clear(); renderFiles(); });
 
-  uploadArea.onclick = () => fileInput.click();
-  uploadArea.ondragover = e => { e.preventDefault(); uploadArea.classList.add("dragover"); };
-  uploadArea.ondragleave = () => { uploadArea.classList.remove("dragover"); };
-  uploadArea.ondrop = e => { e.preventDefault(); uploadArea.classList.remove("dragover"); addFiles(Array.from(e.dataTransfer.files)); };
-  fileInput.onchange = e => addFiles(Array.from(e.target.files));
+  if (uploadArea && fileInput) {
+    uploadArea.onclick = () => fileInput.click();
+    uploadArea.ondragover = (e) => { e.preventDefault(); uploadArea.classList.add("dragover"); };
+    uploadArea.ondragleave = () => uploadArea.classList.remove("dragover");
+    uploadArea.ondrop = (e) => {
+      e.preventDefault();
+      uploadArea.classList.remove("dragover");
+      addFiles(Array.from(e.dataTransfer.files || []));
+    };
+    fileInput.onchange = (e) => addFiles(Array.from(e.target.files || []));
+  }
 
   renderFiles();
   renderResults();
