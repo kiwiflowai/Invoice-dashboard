@@ -3,29 +3,40 @@ import os
 import urllib.parse
 import boto3
 import logging
+from decimal import Decimal
 from google.cloud import documentai_v1 as documentai
 from google.oauth2 import service_account
 from datetime import datetime
 
+# -----------------------
+# Logging
+# -----------------------
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-# AWS clients
+# -----------------------
+# AWS Clients
+# -----------------------
 s3 = boto3.client("s3")
 secrets = boto3.client("secretsmanager")
 dynamodb = boto3.resource("dynamodb")
 bedrock = boto3.client("bedrock-runtime", region_name="ap-southeast-2")
+
 TABLE_NAME = "OCRResults"
 table = dynamodb.Table(TABLE_NAME)
 
-# DocAI config
+# -----------------------
+# Google DocAI Config
+# -----------------------
 GCP_PROJECT_ID = "ocrdocai-479704"
 PROCESSOR_ID = "b453ab1a6b475d7d"
 LOCATION = "us"
 SECRET_NAME = "googledocaikey"
 S3_BUCKET = "invoice-storage1209"
 
-# Claude model
+# -----------------------
+# Bedrock Model
+# -----------------------
 MODEL_ID = "anthropic.claude-3-haiku-20240307-v1:0"
 
 # -----------------------
@@ -33,9 +44,9 @@ MODEL_ID = "anthropic.claude-3-haiku-20240307-v1:0"
 # -----------------------
 def get_google_credentials():
     secret = secrets.get_secret_value(SecretId=SECRET_NAME)
-    sa_key = json.loads(secret["SecretString"])
-    credentials = service_account.Credentials.from_service_account_info(sa_key)
-    return credentials
+    return service_account.Credentials.from_service_account_info(
+        json.loads(secret["SecretString"])
+    )
 
 SUPPORTED_MIME_TYPES = {
     ".pdf": "application/pdf",
@@ -43,123 +54,171 @@ SUPPORTED_MIME_TYPES = {
     ".jpg": "image/jpeg",
     ".jpeg": "image/jpeg",
     ".tiff": "image/tiff",
-    ".tif": "image/tiff",
-    ".gif": "image/gif",
-    ".bmp": "image/bmp",
-    ".webp": "image/webp"
+    ".tif": "image/tiff"
 }
 
-def get_mime_type_from_bytes(key: str, file_bytes: bytes) -> str:
+def get_mime_type(key):
     ext = os.path.splitext(key.lower())[1]
-    if ext in SUPPORTED_MIME_TYPES:
-        return SUPPORTED_MIME_TYPES[ext]
-    if file_bytes.startswith(b"%PDF"): return "application/pdf"
-    if file_bytes.startswith(b"\x89PNG"): return "image/png"
-    if file_bytes.startswith(b"\xFF\xD8\xFF"): return "image/jpeg"
-    if file_bytes.startswith(b"GIF87a") or file_bytes.startswith(b"GIF89a"): return "image/gif"
-    if file_bytes[:2] == b"BM": return "image/bmp"
-    return "application/pdf"  # default
+    return SUPPORTED_MIME_TYPES.get(ext, "application/pdf")
 
 def process_document_with_docai(file_bytes, key):
-    """
-    Extract text from PDF or images using DocAI
-    """
-    mime_type = get_mime_type_from_bytes(key, file_bytes)
-    credentials = get_google_credentials()
-    client = documentai.DocumentProcessorServiceClient(credentials=credentials)
-    processor_name = f"projects/{GCP_PROJECT_ID}/locations/{LOCATION}/processors/{PROCESSOR_ID}"
+    client = documentai.DocumentProcessorServiceClient(
+        credentials=get_google_credentials()
+    )
 
-    raw_document = documentai.RawDocument(content=file_bytes, mime_type=mime_type)
-    request = documentai.ProcessRequest(name=processor_name, raw_document=raw_document)
-    result = client.process_document(request=request)
-    return getattr(result.document, "text", "")
+    request = documentai.ProcessRequest(
+        name=f"projects/{GCP_PROJECT_ID}/locations/{LOCATION}/processors/{PROCESSOR_ID}",
+        raw_document=documentai.RawDocument(
+            content=file_bytes,
+            mime_type=get_mime_type(key)
+        )
+    )
 
-def summarize_with_claude(raw_text):
-    """
-    Sends raw text to Claude via Bedrock and returns a human-readable summary
-    """
+    return client.process_document(request=request).document
+
+# -----------------------
+# Convert floats → Decimal for DynamoDB
+# -----------------------
+def to_dynamodb_safe(value):
+    if isinstance(value, float):
+        return Decimal(str(value))
+    if isinstance(value, dict):
+        return {k: to_dynamodb_safe(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [to_dynamodb_safe(v) for v in value]
+    return value
+
+# -----------------------
+# Claude Extraction (NO retries, ALWAYS JSON)
+# -----------------------
+def extract_with_claude(raw_text):
     prompt = f"""
-You are an invoice assistant.
+You are an intelligent document analyzer.
 
-Summarise the following invoice text in a clear, human-readable way.
-Include:
-- Invoice number
-- Supplier
-- Total amount
-- Due date (if present)
-- Short line-item summary
+1. Determine what this document is.
+2. If it is NOT an invoice, clearly say so.
+3. Always return VALID JSON.
+4. Never throw errors.
 
-Invoice text:
-{raw_text}
+Return this schema exactly:
+
+{{
+  "document_type": "invoice" | "non-invoice",
+  "confidence": number,
+  "invoice_number": string|null,
+  "supplier": string|null,
+  "invoice_date": "YYYY-MM-DD"|null,
+  "due_date": "YYYY-MM-DD"|null,
+  "currency": string|null,
+  "subtotal": number|null,
+  "tax": number|null,
+  "total": number|null,
+  "category": "Utilities"|"Rent"|"SaaS"|"Cloud"|"Office"|"Other"|null,
+  "summary": {{
+    "description": string,
+    "notes": string|null
+  }}
+}}
+
+Document text:
+{raw_text[:12000]}
 """
-
-    request_body = {
-        "anthropic_version": "bedrock-2023-05-31",
-        "max_tokens": 300,
-        "temperature": 0.3,
-        "messages": [
-            {"role": "user", "content": prompt}
-        ]
-    }
 
     response = bedrock.invoke_model(
         modelId=MODEL_ID,
         contentType="application/json",
         accept="application/json",
-        body=json.dumps(request_body)
+        body=json.dumps({
+            "anthropic_version": "bedrock-2023-05-31",
+            "temperature": 0,
+            "max_tokens": 700,
+            "messages": [{"role": "user", "content": prompt}]
+        })
     )
 
-    response_body = json.loads(response["body"].read())
-    summary = response_body["content"][0]["text"]
-    return summary
+    body = json.loads(response["body"].read())
+    text = body["content"][0]["text"].strip()
+
+    try:
+        return json.loads(text)
+    except Exception:
+        # Absolute safety fallback
+        return {
+            "document_type": "non-invoice",
+            "confidence": 0.0,
+            "invoice_number": None,
+            "supplier": None,
+            "invoice_date": None,
+            "due_date": None,
+            "currency": None,
+            "subtotal": None,
+            "tax": None,
+            "total": None,
+            "category": None,
+            "summary": {
+                "description": "Unstructured document",
+                "notes": text[:500]
+            }
+        }
 
 # -----------------------
-# Lambda handler
+# Lambda Handler
 # -----------------------
 def lambda_handler(event, context):
-    logger.info(f"Received event: {json.dumps(event)}")
-
-    results = []
+    logger.info("Processing started")
 
     for record in event.get("Records", []):
-        key = record["s3"]["object"]["key"]
+        key = urllib.parse.unquote_plus(record["s3"]["object"]["key"])
         bucket = record["s3"]["bucket"]["name"]
-        key = urllib.parse.unquote_plus(key)
-        # Extract userId from S3 key: userId/filename.pdf
         user_id = key.split("/")[0] if "/" in key else "unknown"
 
+        if bucket != S3_BUCKET:
+            continue
 
         try:
-            if bucket != S3_BUCKET:
-                logger.warning(f"Skipping file {key} from unexpected bucket {bucket}")
-                continue
+            file_bytes = s3.get_object(Bucket=bucket, Key=key)["Body"].read()
+            document = process_document_with_docai(file_bytes, key)
+            raw_text = document.text or ""
 
-            # Get file
-            s3_obj = s3.get_object(Bucket=bucket, Key=key)
-            file_bytes = s3_obj["Body"].read()
+            extracted = extract_with_claude(raw_text)
 
-            # Extract raw text from DocAI (pass key!)
-            raw_text = process_document_with_docai(file_bytes, key)
-            logger.info(f"Extracted raw text, length={len(raw_text)}")
+            item = {
+                "userId": user_id,
+                "invoiceId": extracted.get("invoice_number") or key,
+                "filename": key,
+                "timestamp": datetime.utcnow().isoformat(),
+                "status": "COMPLETE",
+                "documentType": extracted.get("document_type"),
+                "confidence": extracted.get("confidence"),
+                "rawText": raw_text[:40000],
 
-            # Get summary from Claude
-            summary = summarize_with_claude(raw_text)
-            logger.info(f"Claude summary: {summary}")
-
-            dynamo_item = {
-            "userId": user_id,
-            "filename": key,
-            "timestamp": datetime.utcnow().isoformat(),
-            "raw_text": raw_text,
-            "summary": summary
+                "supplier": extracted.get("supplier"),
+                "invoiceDate": extracted.get("invoice_date"),
+                "dueDate": extracted.get("due_date"),
+                "currency": extracted.get("currency"),
+                "subtotal": extracted.get("subtotal"),
+                "tax": extracted.get("tax"),
+                "total": extracted.get("total"),
+                "category": extracted.get("category"),
+                "summary": extracted.get("summary")
             }
 
-            table.put_item(Item=dynamo_item)
-
-            results.append({"file": key, "status": "success", "summary": summary})
+            table.put_item(Item=to_dynamodb_safe(item))
+            logger.info("Stored %s", key)
 
         except Exception as e:
-            logger.exception(f"Error processing file {key}")
-            results.append({"file": key, "status": "error", "error": str(e)})
+            logger.exception("Hard failure on %s", key)
+            table.put_item(Item={
+                "userId": user_id,
+                "invoiceId": key,
+                "filename": key,
+                "timestamp": datetime.utcnow().isoformat(),
+                "status": "FAILED",
+                "summary": {
+                    "description": "Processing failure",
+                    "notes": str(e)
+                }
+            })
 
-    return {"statusCode": 200, "results": results}
+    return {"statusCode": 200}
+
