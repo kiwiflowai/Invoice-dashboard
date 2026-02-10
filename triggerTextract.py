@@ -6,7 +6,6 @@ import logging
 from decimal import Decimal
 from google.cloud import documentai_v1 as documentai
 from google.oauth2 import service_account
-from datetime import datetime
 
 # -----------------------
 # Logging
@@ -29,7 +28,7 @@ table = dynamodb.Table(TABLE_NAME)
 # Google DocAI Config
 # -----------------------
 GCP_PROJECT_ID = "ocrdocai-479704"
-PROCESSOR_ID = "b453ab1a6b475d7d"
+PROCESSOR_ID = "b453ab1a6b475d7d"   # Invoice Parser
 LOCATION = "us"
 SECRET_NAME = "googledocaikey"
 S3_BUCKET = "invoice-storage1209"
@@ -58,8 +57,10 @@ SUPPORTED_MIME_TYPES = {
 }
 
 def get_mime_type(key):
-    ext = os.path.splitext(key.lower())[1]
-    return SUPPORTED_MIME_TYPES.get(ext, "application/pdf")
+    return SUPPORTED_MIME_TYPES.get(
+        os.path.splitext(key.lower())[1],
+        "application/pdf"
+    )
 
 def process_document_with_docai(file_bytes, key):
     client = documentai.DocumentProcessorServiceClient(
@@ -76,48 +77,56 @@ def process_document_with_docai(file_bytes, key):
 
     return client.process_document(request=request).document
 
-# -----------------------
-# Convert floats → Decimal for DynamoDB
-# -----------------------
-def to_dynamodb_safe(value):
-    if isinstance(value, float):
-        return Decimal(str(value))
-    if isinstance(value, dict):
-        return {k: to_dynamodb_safe(v) for k, v in value.items()}
-    if isinstance(value, list):
-        return [to_dynamodb_safe(v) for v in value]
-    return value
+def convert_floats_to_decimal(obj):
+    if isinstance(obj, list):
+        return [convert_floats_to_decimal(i) for i in obj]
+    elif isinstance(obj, dict):
+        return {k: convert_floats_to_decimal(v) for k, v in obj.items()}
+    elif isinstance(obj, float):
+        return Decimal(str(obj))
+    else:
+        return obj
 
 # -----------------------
-# Claude Extraction (NO retries, ALWAYS JSON)
+# Claude Extraction
 # -----------------------
 def extract_with_claude(raw_text):
     prompt = f"""
-You are an intelligent document analyzer.
+You are an expert invoice analysis system.
 
-1. Determine what this document is.
-2. If it is NOT an invoice, clearly say so.
-3. Always return VALID JSON.
-4. Never throw errors.
+RULES:
+- Return VALID JSON ONLY
+- No markdown
+- No commentary
+- If unknown use null
 
-Return this schema exactly:
-
+JSON SCHEMA:
 {{
-  "document_type": "invoice" | "non-invoice",
+  "documentType": "invoice",
   "confidence": number,
-  "invoice_number": string|null,
-  "supplier": string|null,
-  "invoice_date": "YYYY-MM-DD"|null,
-  "due_date": "YYYY-MM-DD"|null,
-  "currency": string|null,
-  "subtotal": number|null,
-  "tax": number|null,
-  "total": number|null,
-  "category": "Utilities"|"Rent"|"SaaS"|"Cloud"|"Office"|"Other"|null,
-  "summary": {{
-    "description": string,
-    "notes": string|null
-  }}
+  "parties": {{
+    "sender": string|null,
+    "recipient": string|null
+  }},
+  "dates": {{
+    "issueDate": "YYYY-MM-DD"|null,
+    "dueDate": "YYYY-MM-DD"|null
+  }},
+  "financials": {{
+    "currency": string|null,
+    "subtotal": number|null,
+    "tax": number|null,
+    "total": number|null
+  }},
+  "lineItems": [
+    {{
+      "description": string,
+      "quantity": number|null,
+      "unitPrice": number|null,
+      "amount": number|null
+    }}
+  ],
+  "summary": string
 }}
 
 Document text:
@@ -131,94 +140,62 @@ Document text:
         body=json.dumps({
             "anthropic_version": "bedrock-2023-05-31",
             "temperature": 0,
-            "max_tokens": 700,
+            "max_tokens": 900,
             "messages": [{"role": "user", "content": prompt}]
         })
     )
 
     body = json.loads(response["body"].read())
-    text = body["content"][0]["text"].strip()
-
-    try:
-        return json.loads(text)
-    except Exception:
-        # Absolute safety fallback
-        return {
-            "document_type": "non-invoice",
-            "confidence": 0.0,
-            "invoice_number": None,
-            "supplier": None,
-            "invoice_date": None,
-            "due_date": None,
-            "currency": None,
-            "subtotal": None,
-            "tax": None,
-            "total": None,
-            "category": None,
-            "summary": {
-                "description": "Unstructured document",
-                "notes": text[:500]
-            }
-        }
+    return json.loads(body["content"][0]["text"])
 
 # -----------------------
 # Lambda Handler
 # -----------------------
 def lambda_handler(event, context):
-    logger.info("Processing started")
+    logger.info("OCR Lambda triggered")
 
     for record in event.get("Records", []):
         key = urllib.parse.unquote_plus(record["s3"]["object"]["key"])
         bucket = record["s3"]["bucket"]["name"]
-        user_id = key.split("/")[0] if "/" in key else "unknown"
 
         if bucket != S3_BUCKET:
             continue
 
         try:
+            user_id, filename = key.split("/", 1)
+        except ValueError:
+            logger.error("Invalid S3 key format: %s", key)
+            continue
+
+        try:
             file_bytes = s3.get_object(Bucket=bucket, Key=key)["Body"].read()
             document = process_document_with_docai(file_bytes, key)
-            raw_text = document.text or ""
 
-            extracted = extract_with_claude(raw_text)
+            # ✅ Extract text from Invoice Parser entities
+            raw_text = "\n".join(
+                e.mention_text for e in document.entities if e.mention_text
+            )
 
-            item = {
-                "userId": user_id,
-                "invoiceId": extracted.get("invoice_number") or key,
-                "filename": key,
-                "timestamp": datetime.utcnow().isoformat(),
-                "status": "COMPLETE",
-                "documentType": extracted.get("document_type"),
-                "confidence": extracted.get("confidence"),
-                "rawText": raw_text[:40000],
+            summary_obj = extract_with_claude(raw_text)
+            summary_obj = convert_floats_to_decimal(summary_obj)
 
-                "supplier": extracted.get("supplier"),
-                "invoiceDate": extracted.get("invoice_date"),
-                "dueDate": extracted.get("due_date"),
-                "currency": extracted.get("currency"),
-                "subtotal": extracted.get("subtotal"),
-                "tax": extracted.get("tax"),
-                "total": extracted.get("total"),
-                "category": extracted.get("category"),
-                "summary": extracted.get("summary")
+        except Exception:
+            logger.exception("Processing failed for %s", key)
+            summary_obj = {
+                "documentType": "unknown",
+                "confidence": Decimal("0"),
+                "summary": "Failed to process document."
             }
 
-            table.put_item(Item=to_dynamodb_safe(item))
-            logger.info("Stored %s", key)
-
-        except Exception as e:
-            logger.exception("Hard failure on %s", key)
-            table.put_item(Item={
+        # ✅ Store REAL JSON (Decimal-safe)
+        table.put_item(
+            Item={
                 "userId": user_id,
-                "invoiceId": key,
-                "filename": key,
-                "timestamp": datetime.utcnow().isoformat(),
-                "status": "FAILED",
-                "summary": {
-                    "description": "Processing failure",
-                    "notes": str(e)
-                }
-            })
+                "filename": filename,
+                "summary": summary_obj
+            }
+        )
+
+        logger.info("Stored OCR result for %s", key)
 
     return {"statusCode": 200}
-
