@@ -3,9 +3,9 @@ import os
 import urllib.parse
 import boto3
 import logging
-from decimal import Decimal
 from google.cloud import documentai_v1 as documentai
 from google.oauth2 import service_account
+from datetime import datetime
 
 # -----------------------
 # Logging
@@ -28,7 +28,7 @@ table = dynamodb.Table(TABLE_NAME)
 # Google DocAI Config
 # -----------------------
 GCP_PROJECT_ID = "ocrdocai-479704"
-PROCESSOR_ID = "b453ab1a6b475d7d"   # Invoice Parser
+PROCESSOR_ID = "b453ab1a6b475d7d"
 LOCATION = "us"
 SECRET_NAME = "googledocaikey"
 S3_BUCKET = "invoice-storage1209"
@@ -77,32 +77,31 @@ def process_document_with_docai(file_bytes, key):
 
     return client.process_document(request=request).document
 
-def convert_floats_to_decimal(obj):
-    if isinstance(obj, list):
-        return [convert_floats_to_decimal(i) for i in obj]
-    elif isinstance(obj, dict):
-        return {k: convert_floats_to_decimal(v) for k, v in obj.items()}
-    elif isinstance(obj, float):
-        return Decimal(str(obj))
-    else:
-        return obj
-
 # -----------------------
-# Claude Extraction
+# Claude – STRUCTURED JSON (STRINGIFIED LATER)
 # -----------------------
 def extract_with_claude(raw_text):
     prompt = f"""
-You are an expert invoice analysis system.
+You are an expert document analysis system.
+
+Your task:
+- Understand the document
+- Identify its type
+- Extract key factual and financial information
+- Provide a clear human-readable summary
 
 RULES:
-- Return VALID JSON ONLY
-- No markdown
-- No commentary
-- If unknown use null
+- ALWAYS return valid JSON
+- NO markdown
+- NO commentary
+- NO text outside JSON
+- If unknown, use null
+- Do NOT guess
 
 JSON SCHEMA:
+
 {{
-  "documentType": "invoice",
+  "documentType": "invoice | receipt | contract | statement | report | letter | form | unknown",
   "confidence": number,
   "parties": {{
     "sender": string|null,
@@ -146,7 +145,20 @@ Document text:
     )
 
     body = json.loads(response["body"].read())
-    return json.loads(body["content"][0]["text"])
+    text = body["content"][0]["text"].strip()
+
+    try:
+        return json.loads(text)
+    except Exception:
+        return {
+            "documentType": "unknown",
+            "confidence": 0,
+            "parties": {"sender": None, "recipient": None},
+            "dates": {"issueDate": None, "dueDate": None},
+            "financials": {"currency": None, "subtotal": None, "tax": None, "total": None},
+            "lineItems": [],
+            "summary": "Document uploaded successfully, but extraction failed."
+        }
 
 # -----------------------
 # Lambda Handler
@@ -161,6 +173,7 @@ def lambda_handler(event, context):
         if bucket != S3_BUCKET:
             continue
 
+        # Expecting: userId/filename
         try:
             user_id, filename = key.split("/", 1)
         except ValueError:
@@ -170,29 +183,27 @@ def lambda_handler(event, context):
         try:
             file_bytes = s3.get_object(Bucket=bucket, Key=key)["Body"].read()
             document = process_document_with_docai(file_bytes, key)
-
-            # ✅ Extract text from Invoice Parser entities
-            raw_text = "\n".join(
-                e.mention_text for e in document.entities if e.mention_text
-            )
+            raw_text = document.text or ""
 
             summary_obj = extract_with_claude(raw_text)
-            summary_obj = convert_floats_to_decimal(summary_obj)
 
-        except Exception:
+        except Exception as e:
             logger.exception("Processing failed for %s", key)
             summary_obj = {
                 "documentType": "unknown",
-                "confidence": Decimal("0"),
+                "confidence": 0,
                 "summary": "Failed to process document."
             }
 
-        # ✅ Store REAL JSON (Decimal-safe)
+        # 🔥 STRINGIFY SUMMARY (THIS IS THE KEY FIX)
+        summary_str = json.dumps(summary_obj, ensure_ascii=False)
+
+        # ✅ ONE FIELD ONLY
         table.put_item(
             Item={
                 "userId": user_id,
                 "filename": filename,
-                "summary": summary_obj
+                "summary": summary_str
             }
         )
 

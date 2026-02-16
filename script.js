@@ -4,7 +4,7 @@ document.addEventListener('DOMContentLoaded', () => {
   localStorage.removeItem("token");
 
   const apiUrl = "https://6kl77b9h06.execute-api.ap-southeast-2.amazonaws.com/prod/upload";
-  const resultsApiUrl = "https://a8uoo3tjc6.execute-api.ap-southeast-2.amazonaws.com/prod/results";
+  const resultsApiUrl = "https://ydnig2qfq2.execute-api.ap-southeast-2.amazonaws.com/results";
   const LOGIN_API = "https://9gyrocprv5.execute-api.ap-southeast-2.amazonaws.com/login";
   const SIGNUP_API = "https://gsq9rae8vh.execute-api.ap-southeast-2.amazonaws.com/signup";
 
@@ -247,30 +247,30 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function renderResults() {
-    if (!resultsContainer) return;
-    if (!results.length) {
-      resultsContainer.innerHTML = `
-        <div class="empty-state">
-          <div class="empty-state-icon">📄</div>
-          <h3>No results yet</h3>
-          <p>Upload files to see extracted text here, or load previous results from your account.</p>
-        </div>`;
-      return;
-    }
-    resultsContainer.innerHTML = results.map((r) => {
-      const safeFileName = escapeHtml(r.fileName);
-      const safeSummary = escapeHtml(r.summary || "No summary available");
-      return `<div class="result-item">
-        <div class="result-header">
-          <div class="result-title">
-            <span>${getFileIcon(r.fileName)}</span>
-            <span>${safeFileName}</span>
-          </div>
-        </div>
-        <div class="result-content">${safeSummary}</div>
+  if (!resultsContainer) return;
+
+  if (!results.length) {
+    resultsContainer.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-state-icon">📄</div>
+        <h3>No results yet</h3>
+        <p>Upload files or load previous results.</p>
       </div>`;
-    }).join("");
+    return;
   }
+
+  resultsContainer.innerHTML = results.map(r => `
+    <div class="result-item">
+      <div class="result-header">
+        <div class="result-title">
+          <span>📎</span>
+          <strong>${escapeHtml(r.fileName)}</strong>
+        </div>
+      </div>
+      <pre class="result-content">${escapeHtml(r.summary)}</pre>
+    </div>
+  `).join("");
+}
 
   function addFiles(newFiles) {
     if (!newFiles.length) return;
@@ -313,22 +313,68 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   async function loadUserResults() {
-    if (!currentUser) return;
-    try {
-      const res = await fetch(`${resultsApiUrl}?userId=${encodeURIComponent(currentUser)}`);
-      const data = await res.json();
-      const items = data.items || [];
-      results = items.map(item => ({
-        fileName:(item.filename||"Unknown").split("/").pop(),
-        summary:item.summary||"No summary"
-      }));
-      renderResults();
-      showNotification("User results loaded");
-    } catch(err) {
-      console.error(err);
-      showNotification("Failed to load user results","error");
+  if (!currentUser) return;
+
+  try {
+    const res = await fetch(`${resultsApiUrl}?userId=${encodeURIComponent(currentUser)}`);
+    if (!res.ok) throw new Error("Failed to fetch results");
+
+    const data = await res.json();
+    const items = data.items || [];
+
+    // ---------------- FORMAT RESULTS ----------------
+    function formatInvoice(parsed) {
+      if (!parsed) return "No data";
+
+      const lines = [];
+      if (parsed.documentType) lines.push(`Type: ${parsed.documentType}`);
+      if (parsed.dates) {
+        if (parsed.dates.issueDate) lines.push(`Issue Date: ${parsed.dates.issueDate}`);
+        if (parsed.dates.dueDate) lines.push(`Due Date: ${parsed.dates.dueDate}`);
+      }
+      if (parsed.parties) {
+        if (parsed.parties.sender) lines.push(`Sender: ${parsed.parties.sender}`);
+        if (parsed.parties.recipient) lines.push(`Recipient: ${parsed.parties.recipient}`);
+      }
+      if (parsed.financials) {
+        if (parsed.financials.subtotal) lines.push(`Subtotal: ${parsed.financials.currency || ""} ${parsed.financials.subtotal}`);
+        if (parsed.financials.tax) lines.push(`Tax: ${parsed.financials.currency || ""} ${parsed.financials.tax}`);
+        if (parsed.financials.total) lines.push(`Total: ${parsed.financials.currency || ""} ${parsed.financials.total}`);
+      }
+      if (parsed.lineItems && parsed.lineItems.length) {
+        lines.push("Line Items:");
+        parsed.lineItems.forEach((item, i) => {
+          lines.push(`  ${i + 1}. ${item.description} - ${item.quantity} x ${item.unitPrice} = ${item.amount}`);
+        });
+      }
+      if (parsed.summary) lines.push(`Summary: ${parsed.summary}`);
+      return lines.join("\n");
     }
+
+    results = items.map(item => {
+      // Parse summary field if JSON string
+      let parsedSummary = item.summary;
+      if (typeof parsedSummary === "string") {
+        try { parsedSummary = JSON.parse(parsedSummary); } catch {}
+      }
+
+      const rawName = item.filename || item.fileName || "Unknown";
+      const shortName = rawName.split("/").pop();
+
+      return {
+        fileName: shortName,
+        summary: formatInvoice(parsedSummary)
+      };
+    });
+
+    renderResults();
+    showNotification("Results loaded successfully");
+
+  } catch (err) {
+    console.error(err);
+    showNotification("Failed to load user results", "error");
   }
+}
 
   if (fetchResultsBtn) fetchResultsBtn.addEventListener("click", loadUserResults);
   if (clearResultsBtn) clearResultsBtn.addEventListener("click", () => { results = []; renderResults(); });
